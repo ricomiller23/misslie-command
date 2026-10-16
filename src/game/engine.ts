@@ -60,6 +60,19 @@ export class CinderSkyEngine {
   public nextSettlementScoreThreshold: number = 10000;
   public isPaused: boolean = false;
   public isGameOver: boolean = false;
+  public mouseTarget = {
+    x: 600,
+    y: 350,
+    active: false,
+    chosenSiloIndex: undefined as number | undefined
+  };
+
+  public updateMouseTarget(x: number, y: number, active: boolean, chosenSiloIndex?: number) {
+    this.mouseTarget.x = x;
+    this.mouseTarget.y = y;
+    this.mouseTarget.active = active;
+    this.mouseTarget.chosenSiloIndex = chosenSiloIndex;
+  }
   public inWave: boolean = false;
 
   // Wave Spawner State
@@ -216,7 +229,7 @@ export class CinderSkyEngine {
   // Player action: Fire flak shell
   public fireShell(targetX: number, targetY: number, forcedSiloIndex?: number): boolean {
     if (this.isPaused || this.isGameOver || !this.inWave) return false;
-    if (targetY > CinderSkyEngine.VIRTUAL_HEIGHT - 60) return false; // Don't fire below silo line
+    if (targetY > CinderSkyEngine.VIRTUAL_HEIGHT - 60) { this.audio.playDryFire(); return false; } // Don't fire below silo line
 
     // Audio unlock on interaction
     this.audio.initContext();
@@ -227,6 +240,9 @@ export class CinderSkyEngine {
       const s = this.silos[forcedSiloIndex];
       if (!s.disabled && s.shells > 0) {
         chosenSilo = s;
+      } else {
+        this.audio.playDryFire();
+        return false;
       }
     }
 
@@ -1008,5 +1024,99 @@ export class CinderSkyEngine {
       ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
     });
     ctx.globalAlpha = 1.0;
+
+    // 9. Draw Mouse Targeting Pointer Crosshair & Trajectory Guide Line
+    if (this.mouseTarget.active && !this.isGameOver) {
+      const mx = this.mouseTarget.x;
+      const my = this.mouseTarget.y;
+      const isValidAltitude = my <= CinderSkyEngine.VIRTUAL_HEIGHT - 60;
+
+      // Determine which silo will fire towards this target
+      let primedSilo: Silo | null = null;
+      if (this.mouseTarget.chosenSiloIndex !== undefined) {
+        const s = this.silos[this.mouseTarget.chosenSiloIndex];
+        if (!s.disabled && s.shells > 0) primedSilo = s;
+      }
+      if (!primedSilo && this.mouseTarget.chosenSiloIndex === undefined) {
+        let bestDist = Infinity;
+        for (const s of this.silos) {
+          if (!s.disabled && s.shells > 0) {
+            const dist = Math.hypot(s.x - mx, s.y - my);
+            if (dist < bestDist) {
+              bestDist = dist;
+              primedSilo = s;
+            }
+          }
+        }
+      }
+
+      // 9a. Trajectory Guide Line from Primed Silo
+      if (primedSilo && isValidAltitude) {
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        const guideColor = primedSilo.isCenterFast
+          ? "rgba(14, 165, 233, 0.45)"
+          : primedSilo.id === 0
+          ? "rgba(99, 102, 241, 0.45)"
+          : "rgba(168, 85, 247, 0.45)";
+        ctx.strokeStyle = guideColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(primedSilo.x, primedSilo.y - 12);
+        ctx.lineTo(mx, my);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 9b. Vector Missile Crosshair Reticle
+      ctx.save();
+      const reticleColor = !isValidAltitude
+        ? "#ef4444"
+        : primedSilo
+        ? (this.settings.colorblindSafe ? "#38bdf8" : "#22d3ee")
+        : "#f59e0b";
+
+      // Outer Ring
+      ctx.strokeStyle = reticleColor;
+      ctx.lineWidth = 1.75;
+      ctx.beginPath();
+      ctx.arc(mx, my, 14, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Cardinal Tick Marks
+      ctx.beginPath();
+      ctx.moveTo(mx, my - 14);
+      ctx.lineTo(mx, my - 21);
+      ctx.moveTo(mx, my + 14);
+      ctx.lineTo(mx, my + 21);
+      ctx.moveTo(mx - 14, my);
+      ctx.lineTo(mx - 21, my);
+      ctx.moveTo(mx + 14, my);
+      ctx.lineTo(mx + 21, my);
+      ctx.stroke();
+
+      // Center Aim Dot
+      ctx.fillStyle = reticleColor;
+      ctx.beginPath();
+      ctx.arc(mx, my, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Tactical Readout Label next to Reticle
+      let baseLabel = "NO AMMO";
+      if (!isValidAltitude) {
+        baseLabel = "LOW CEILING";
+      } else if (primedSilo) {
+        const baseName = primedSilo.id === 0 ? "BASE 1 [L]" : primedSilo.id === 1 ? "BASE 2 [FAST]" : "BASE 3 [R]";
+        baseLabel = `${baseName} (${primedSilo.shells})`;
+      } else if (this.mouseTarget.chosenSiloIndex !== undefined) {
+        baseLabel = `BASE ${this.mouseTarget.chosenSiloIndex + 1} EMPTY`;
+      }
+      ctx.fillStyle = reticleColor;
+      ctx.font = "bold 11px 'JetBrains Mono', monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(baseLabel, mx + 18, my - 5);
+
+      ctx.restore();
+    }
   }
 }

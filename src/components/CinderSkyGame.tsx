@@ -19,7 +19,12 @@ import {
   AlertTriangle,
   X,
   Check,
-  ChevronRight
+  ChevronRight,
+  Keyboard,
+  MousePointer,
+  HelpCircle,
+  Crosshair,
+  Target
 } from "lucide-react";
 import { CinderSkyEngine, HudState } from "@/game/engine";
 import { GameMode, Difficulty, WaveTally, HighScoreRecord, WORKSHOP_PRICES, WorkshopUpgrades } from "@/game/types";
@@ -33,11 +38,12 @@ import {
   clearAllStoredScores
 } from "@/game/storage";
 
-type ScreenState = "title" | "playing" | "tally" | "workshop" | "game_over" | "scores" | "settings";
+type ScreenState = "title" | "playing" | "tally" | "workshop" | "game_over" | "scores" | "settings" | "controls";
 
 export function CinderSkyGame() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<CinderSkyEngine | null>(null);
+  const mousePosRef = useRef<{ x: number; y: number; onCanvas: boolean }>({ x: 600, y: 350, onCanvas: false });
 
   // High-level UI screens
   const [screen, setScreen] = useState<ScreenState>("title");
@@ -70,10 +76,20 @@ export function CinderSkyGame() {
   const [gameOverStats, setGameOverStats] = useState<{ score: number; wave: number; embers: number; isNewHigh: boolean } | null>(null);
   const [highScores, setHighScores] = useState<HighScoreRecord[]>([]);
 
-  // Settings
+  // Settings & Controls
   const [settings, setSettingsState] = useState(loadSettings());
   const [forcedSilo, setForcedSilo] = useState<number | undefined>(undefined);
   const [isPaused, setIsPaused] = useState(false);
+
+  // Sync forced silo selection with engine mouse target
+  useEffect(() => {
+    engineRef.current?.updateMouseTarget(
+      mousePosRef.current.x,
+      mousePosRef.current.y,
+      mousePosRef.current.onCanvas,
+      forcedSilo
+    );
+  }, [forcedSilo]);
 
   // Initialize engine and persistent data
   useEffect(() => {
@@ -116,33 +132,94 @@ export function CinderSkyGame() {
     };
   }, []);
 
-  // Keyboard controls: 1/2/3 for silos, Space for Slow Time, P/Esc for Pause
+  // Keyboard controls: 1/2/3 to choose/fire base, 0/A for auto, Space for Slow Time, P/Esc for Pause, H for Controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const engine = engineRef.current;
       if (!engine) return;
 
+      // Base 1: Left Silo
       if (e.key === "1") {
-        setForcedSilo((prev) => (prev === 0 ? undefined : 0));
-      } else if (e.key === "2") {
-        setForcedSilo((prev) => (prev === 1 ? undefined : 1));
-      } else if (e.key === "3") {
-        setForcedSilo((prev) => (prev === 2 ? undefined : 2));
-      } else if (e.code === "Space") {
         e.preventDefault();
-        engine.triggerSlowTime();
-      } else if (e.key === "p" || e.key === "P" || e.key === "Escape") {
+        setForcedSilo(0);
+        engine.updateMouseTarget(mousePosRef.current.x, mousePosRef.current.y, mousePosRef.current.onCanvas, 0);
+        if (screen === "playing" && !engine.isPaused && mousePosRef.current.onCanvas) {
+          engine.fireShell(mousePosRef.current.x, mousePosRef.current.y, 0);
+        }
+      }
+      // Base 2: Center Fast Silo
+      else if (e.key === "2") {
+        e.preventDefault();
+        setForcedSilo(1);
+        engine.updateMouseTarget(mousePosRef.current.x, mousePosRef.current.y, mousePosRef.current.onCanvas, 1);
+        if (screen === "playing" && !engine.isPaused && mousePosRef.current.onCanvas) {
+          engine.fireShell(mousePosRef.current.x, mousePosRef.current.y, 1);
+        }
+      }
+      // Base 3: Right Silo
+      else if (e.key === "3") {
+        e.preventDefault();
+        setForcedSilo(2);
+        engine.updateMouseTarget(mousePosRef.current.x, mousePosRef.current.y, mousePosRef.current.onCanvas, 2);
+        if (screen === "playing" && !engine.isPaused && mousePosRef.current.onCanvas) {
+          engine.fireShell(mousePosRef.current.x, mousePosRef.current.y, 2);
+        }
+      }
+      // Auto / Nearest Base
+      else if (e.key === "0" || e.key === "a" || e.key === "A") {
+        e.preventDefault();
+        setForcedSilo(undefined);
+        engine.updateMouseTarget(mousePosRef.current.x, mousePosRef.current.y, mousePosRef.current.onCanvas, undefined);
+      }
+      // Slow Time
+      else if (e.code === "Space") {
+        e.preventDefault();
+        if (screen === "playing" && !engine.isPaused) {
+          engine.triggerSlowTime();
+        }
+      }
+      // Pause Toggle
+      else if (e.key === "p" || e.key === "P" || e.key === "Escape") {
         e.preventDefault();
         if (screen === "playing") {
           const paused = engine.togglePause();
           setIsPaused(paused);
+        } else if (screen === "controls") {
+          setScreen("playing");
         }
+      }
+      // Help / Controls modal
+      else if (e.key === "h" || e.key === "H" || e.key === "?" || e.key === "c" || e.key === "C") {
+        e.preventDefault();
+        setScreen((prev) => (prev === "controls" ? "playing" : "controls"));
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [screen]);
+
+  // Pointer Movement: Continuous Mouse Reticle Tracking
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const engine = engineRef.current;
+    const canvas = canvasRef.current;
+    if (!engine || !canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = CinderSkyEngine.VIRTUAL_WIDTH / rect.width;
+    const scaleY = CinderSkyEngine.VIRTUAL_HEIGHT / rect.height;
+
+    const targetX = (e.clientX - rect.left) * scaleX;
+    const targetY = (e.clientY - rect.top) * scaleY;
+
+    mousePosRef.current = { x: targetX, y: targetY, onCanvas: true };
+    engine.updateMouseTarget(targetX, targetY, true, forcedSilo);
+  };
+
+  const handlePointerLeave = () => {
+    mousePosRef.current.onCanvas = false;
+    engineRef.current?.updateMouseTarget(600, 350, false, forcedSilo);
+  };
 
   // Canvas click / touch handler to fire flak shell
   const handleCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -157,7 +234,9 @@ export function CinderSkyGame() {
     const targetX = (e.clientX - rect.left) * scaleX;
     const targetY = (e.clientY - rect.top) * scaleY;
 
+    mousePosRef.current = { x: targetX, y: targetY, onCanvas: true };
     engine.fireShell(targetX, targetY, forcedSilo);
+    engine.updateMouseTarget(targetX, targetY, true, forcedSilo);
   };
 
   // Start Standard Game
@@ -228,13 +307,24 @@ export function CinderSkyGame() {
           </span>
         </div>
 
-        <div className="flex items-center gap-3 text-xs md:text-sm">
+        <div className="flex items-center gap-2 md:gap-3 text-xs md:text-sm">
           {screen === "playing" && (
             <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded text-amber-300">
               <Flame className="w-4 h-4 text-amber-400" />
               <span>{hud.embers} EMBERS</span>
             </div>
           )}
+
+          {/* Controls & Help Guide Button */}
+          <button
+            onClick={() => setScreen("controls")}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-cyan-700/60 bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 text-xs font-bold transition-all shadow-[0_0_10px_rgba(6,182,212,0.2)]"
+            title="Controls & Tactical Guide [H]"
+          >
+            <Keyboard className="w-4 h-4 text-cyan-400" />
+            <span className="hidden sm:inline">CONTROLS</span>
+            <span className="text-[10px] opacity-70">[H]</span>
+          </button>
 
           <button
             onClick={() => handleUpdateSetting("soundEnabled", !settings.soundEnabled)}
@@ -257,11 +347,13 @@ export function CinderSkyGame() {
       {/* Main Game Screen Stage */}
       <main className="relative w-full max-w-[1200px] flex-1 flex flex-col items-center justify-center my-2">
         <div className="relative w-full aspect-[3/2] max-h-[800px] rounded-b-xl overflow-hidden border border-cyan-900/40 shadow-[0_0_50px_rgba(6,182,212,0.15)] bg-[#070a1a]">
-          {/* Hardware Accelerated Canvas */}
+          {/* Hardware Accelerated Canvas with continuous mouse tracking */}
           <canvas
             ref={canvasRef}
             width={1200}
             height={800}
+            onPointerMove={handlePointerMove}
+            onPointerLeave={handlePointerLeave}
             onPointerDown={handleCanvasPointerDown}
             className="w-full h-full block cursor-crosshair touch-none"
           />
@@ -288,13 +380,13 @@ export function CinderSkyGame() {
                   </div>
                 </div>
 
-                {/* Wave Badge */}
+                {/* Wave Badge & Quick Tactical Hint */}
                 <div className="flex flex-col items-center">
                   <div className="px-4 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/50 text-cyan-300 text-xs md:text-sm font-bold tracking-widest uppercase shadow-[0_0_12px_rgba(6,182,212,0.3)]">
                     {gameMode === "daily" ? `DAILY RUN • WAVE ${hud.wave}` : `WAVE ${hud.wave}`}
                   </div>
                   <span className="text-[10px] text-slate-400 mt-1">
-                    {hud.shardsRemaining} Shards Inbound
+                    {hud.shardsRemaining} Shards Inbound • <strong className="text-cyan-400">Aim with Mouse</strong>
                   </span>
                 </div>
 
@@ -331,34 +423,55 @@ export function CinderSkyGame() {
 
               {/* Bottom HUD: Silo Ammo Selectors & Settlements */}
               <div className="flex items-end justify-between w-full pointer-events-auto">
-                {/* Silos Interactive Controls */}
-                <div className="flex items-center gap-2 md:gap-4">
+                {/* Silos Interactive Controls with explicit 1/2/3 Keyboard number badges */}
+                <div className="flex items-center gap-2 md:gap-3">
                   {hud.silos.map((silo, idx) => {
                     const isSelected = forcedSilo === idx;
                     const isCenter = idx === 1;
                     return (
                       <button
                         key={silo.id}
-                        onClick={() => setForcedSilo((prev) => (prev === idx ? undefined : idx))}
+                        onClick={() => setForcedSilo(idx)}
                         disabled={silo.disabled || silo.shells <= 0}
-                        className={`flex flex-col items-center px-2 md:px-3 py-1.5 rounded-lg border text-left transition-all ${
+                        className={`flex flex-col items-center px-3 py-1.5 rounded-lg border text-left transition-all relative ${
                           silo.disabled
                             ? "bg-red-950/40 border-red-900/40 text-red-400 opacity-60"
                             : isSelected
-                            ? "bg-cyan-500/20 border-cyan-400 text-cyan-200 ring-2 ring-cyan-400/50 shadow-[0_0_10px_#38bdf8]"
-                            : "bg-slate-900/80 border-cyan-900/40 text-slate-300 hover:border-cyan-600/60"
+                            ? "bg-cyan-500/25 border-cyan-300 text-cyan-100 ring-2 ring-cyan-400 shadow-[0_0_15px_#38bdf8] scale-105"
+                            : "bg-slate-900/85 border-cyan-900/50 text-slate-300 hover:border-cyan-500/70"
                         }`}
+                        title={`Choose Missile Base ${idx + 1} (Press [${idx + 1}] on keyboard)`}
                       >
-                        <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                          <span className="font-bold text-cyan-400">[{idx + 1}]</span>
-                          <span>{isCenter ? "FAST CENTER" : idx === 0 ? "LEFT SILO" : "RIGHT SILO"}</span>
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-300">
+                          <span className={`px-1.5 py-0.2 rounded font-black text-xs ${isSelected ? "bg-cyan-400 text-slate-950" : "bg-cyan-950 text-cyan-300 border border-cyan-700/60"}`}>
+                            [{idx + 1}]
+                          </span>
+                          <span className="font-bold">{isCenter ? "FAST CENTER" : idx === 0 ? "LEFT BASE" : "RIGHT BASE"}</span>
+                          {isSelected && <span className="text-[9px] text-amber-300 font-bold ml-1 animate-pulse">• ACTIVE</span>}
                         </div>
-                        <div className="text-sm md:text-base font-bold">
-                          {silo.disabled ? "DISABLED" : `${silo.shells} / ${silo.maxShells}`}
+                        <div className="text-sm md:text-base font-extrabold mt-0.5">
+                          {silo.disabled ? "OFFLINE" : `${silo.shells} / ${silo.maxShells}`}
                         </div>
                       </button>
                     );
                   })}
+
+                  {/* Auto Nearest Base Selector */}
+                  <button
+                    onClick={() => setForcedSilo(undefined)}
+                    className={`flex flex-col items-center px-2.5 py-1.5 rounded-lg border text-left transition-all ${
+                      forcedSilo === undefined
+                        ? "bg-emerald-950/40 border-emerald-400 text-emerald-200 ring-1 ring-emerald-400/50 shadow-[0_0_10px_#10b981]"
+                        : "bg-slate-900/80 border-slate-800 text-slate-400 hover:text-slate-200"
+                    }`}
+                    title="Automatically fire from nearest silo with ammo (Press [A] or [0])"
+                  >
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <span className="px-1 rounded bg-slate-800 text-emerald-400 font-bold">[A]</span>
+                      <span>AUTO</span>
+                    </div>
+                    <span className="text-[11px] font-bold">NEAREST</span>
+                  </button>
                 </div>
 
                 {/* Settlements Indicator */}
@@ -402,6 +515,12 @@ export function CinderSkyGame() {
                     RESUME DEFENSE
                   </button>
                   <button
+                    onClick={() => setScreen("controls")}
+                    className="w-full py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-sm font-semibold transition-all"
+                  >
+                    VIEW CONTROLS GUIDE
+                  </button>
+                  <button
                     onClick={() => {
                       engineRef.current?.startNewGame(gameMode, gameMode === "daily" ? dailySeed : undefined);
                       setIsPaused(false);
@@ -433,11 +552,11 @@ export function CinderSkyGame() {
                 <h1 className="text-4xl md:text-5xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-200 to-amber-300 drop-shadow-[0_4px_10px_rgba(0,0,0,0.9)] mb-2">
                   CINDER SKY
                 </h1>
-                <p className="text-xs md:text-sm text-slate-400 max-w-sm mb-6 leading-relaxed">
-                  Meteor shards rain onto the valley. Fire flak interceptor bursts, chain blast reactions, and protect six alpine settlements.
+                <p className="text-xs md:text-sm text-slate-400 max-w-sm mb-5 leading-relaxed">
+                  Meteor shards rain onto the valley. Control the missile pointer with your mouse, choose bases with keyboard numbers, and detonate flak interceptors.
                 </p>
 
-                <div className="w-full flex flex-col gap-3 mb-6">
+                <div className="w-full flex flex-col gap-3 mb-5">
                   <button
                     onClick={handleStartStandard}
                     className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-cyan-500 to-sky-400 hover:from-cyan-400 hover:to-sky-300 text-slate-950 font-black text-sm tracking-wider uppercase flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all hover:scale-[1.02]"
@@ -459,6 +578,15 @@ export function CinderSkyGame() {
                     </span>
                   </button>
 
+                  {/* Prominent Controls Button */}
+                  <button
+                    onClick={() => setScreen("controls")}
+                    className="w-full py-2.5 px-4 rounded-xl bg-cyan-950/70 hover:bg-cyan-900/90 border border-cyan-600/50 text-cyan-300 text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-[0_0_12px_rgba(6,182,212,0.2)]"
+                  >
+                    <Keyboard className="w-4 h-4 text-cyan-400" />
+                    <span>CONTROLS & TACTICAL MANUAL</span>
+                  </button>
+
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => setScreen("scores")}
@@ -477,9 +605,97 @@ export function CinderSkyGame() {
                   </div>
                 </div>
 
-                <div className="text-[11px] text-slate-500 flex items-center gap-4">
-                  <span>CONTROLS: Click/Tap Sky • Space: Slow Time • 1/2/3: Force Silo</span>
+                <div className="text-[11px] text-slate-400 flex items-center justify-center gap-2 bg-slate-900/70 px-4 py-1.5 rounded-full border border-slate-800">
+                  <span className="text-cyan-400 font-bold">Mouse:</span> Aim • <span className="text-cyan-400 font-bold">1/2/3:</span> Choose & Fire Base • <span className="text-cyan-400 font-bold">Space:</span> Slow Time
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* CONTROLS & FLIGHT MANUAL MODAL */}
+          {screen === "controls" && (
+            <div className="absolute inset-0 bg-[#070a1a]/95 backdrop-blur-md flex flex-col items-center justify-center p-4 md:p-6 z-30 overflow-y-auto">
+              <div className="max-w-lg w-full p-6 rounded-2xl bg-[#0c142b] border border-cyan-600/70 shadow-[0_0_35px_rgba(6,182,212,0.3)]">
+                <div className="flex items-center justify-between border-b border-cyan-900/60 pb-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <Keyboard className="w-5 h-5 text-cyan-400" />
+                    <h2 className="text-lg font-bold tracking-wider text-cyan-300">TACTICAL CONTROLS & MANUAL</h2>
+                  </div>
+                  <button onClick={() => setScreen(hud.wave > 1 || hud.score > 0 ? "playing" : "title")} className="text-slate-400 hover:text-white">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-3.5 text-xs text-left mb-6">
+                  {/* Mouse Pointer Control */}
+                  <div className="p-3 rounded-xl bg-slate-900/90 border border-cyan-900/60">
+                    <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm mb-1">
+                      <MousePointer className="w-4 h-4 text-cyan-400" />
+                      <span>Aiming the Missile Pointer</span>
+                    </div>
+                    <p className="text-slate-300 leading-relaxed">
+                      Move your <strong>mouse</strong> over the sky. A glowing vector reticle follows your cursor, displaying altitude, active base status, and a dashed trajectory projection line.
+                    </p>
+                    <div className="mt-2 text-[11px] text-cyan-400 font-semibold">
+                      • Left Click fires an interceptor shell to your exact pointer coordinates.
+                    </div>
+                  </div>
+
+                  {/* Choosing Bases with 1, 2, 3 */}
+                  <div className="p-3 rounded-xl bg-slate-900/90 border border-cyan-900/60">
+                    <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm mb-1">
+                      <Target className="w-4 h-4 text-cyan-400" />
+                      <span>Choosing Missile Bases (Keyboard Numbers)</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
+                      <div className="p-2 rounded bg-slate-950/80 border border-indigo-500/40">
+                        <div className="text-indigo-400 font-black text-sm">[1] LEFT BASE</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">Wide left coverage. Press <strong>1</strong> to select & fire.</div>
+                      </div>
+                      <div className="p-2 rounded bg-slate-950/80 border border-cyan-500/40">
+                        <div className="text-cyan-400 font-black text-sm">[2] CENTER BASE</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5"><strong>+40% Fast Shells!</strong> Press <strong>2</strong> to select & fire.</div>
+                      </div>
+                      <div className="p-2 rounded bg-slate-950/80 border border-purple-500/40">
+                        <div className="text-purple-400 font-black text-sm">[3] RIGHT BASE</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">Wide right coverage. Press <strong>3</strong> to select & fire.</div>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-[11px] text-slate-400">
+                      Press <strong>[A]</strong> or <strong>[0]</strong> at any time for <strong>Auto Nearest Base</strong> mode.
+                    </div>
+                  </div>
+
+                  {/* Special Abilities */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
+                      <div className="flex items-center gap-1.5 text-amber-300 font-bold mb-1">
+                        <Zap className="w-4 h-4 text-amber-400" />
+                        <span>Slow Time [SPACE]</span>
+                      </div>
+                      <p className="text-slate-400 text-[11px] leading-relaxed">
+                        3-second tactical dilation at 30% speed. Essential for cluster cores and gliders!
+                      </p>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800">
+                      <div className="flex items-center gap-1.5 text-amber-300 font-bold mb-1">
+                        <Sparkles className="w-4 h-4 text-amber-400" />
+                        <span>Chain Combos</span>
+                      </div>
+                      <p className="text-slate-400 text-[11px] leading-relaxed">
+                        Shards destroyed in blasts trigger secondary bursts. Score = Base Kill x Combo Multiplier!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setScreen(hud.wave > 1 || hud.score > 0 ? "playing" : "title")}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-sky-400 hover:from-cyan-400 hover:to-sky-300 text-slate-950 font-black text-sm tracking-wider uppercase shadow-[0_0_15px_rgba(6,182,212,0.4)] transition-all"
+                >
+                  {hud.wave > 1 || hud.score > 0 ? "RESUME BATTLE" : "GOT IT, READY TO DEFEND"}
+                </button>
               </div>
             </div>
           )}
@@ -915,17 +1131,32 @@ export function CinderSkyGame() {
         </div>
       </main>
 
-      {/* Footer System Specs */}
-      <footer className="w-full max-w-[1200px] flex items-center justify-between px-4 py-2 text-[11px] text-slate-500 border-t border-cyan-950/40">
-        <div className="flex items-center gap-3">
-          <span>60 FPS Fixed Physics Engine</span>
+      {/* Footer System Specs & Direct Controls Summary Bar */}
+      <footer className="w-full max-w-[1200px] flex flex-wrap items-center justify-between px-4 py-2 text-[11px] text-slate-400 border-t border-cyan-950/40 gap-2">
+        <div className="flex items-center gap-2 md:gap-4 flex-wrap">
+          <span className="text-cyan-300 font-semibold flex items-center gap-1">
+            <MousePointer className="w-3.5 h-3.5" /> Aim: Mouse
+          </span>
           <span>•</span>
-          <span>Seeded Mulberry32 PRNG</span>
+          <span className="text-cyan-300 font-semibold flex items-center gap-1">
+            <Keyboard className="w-3.5 h-3.5" /> Bases: Keys [1] [2] [3]
+          </span>
           <span>•</span>
-          <span>Web Audio API</span>
+          <span className="text-slate-300">Auto: [A]</span>
+          <span>•</span>
+          <span className="text-slate-300">Slow Time: [Space]</span>
+          <span>•</span>
+          <span className="text-slate-300">Pause: [P]</span>
         </div>
-        <div>
-          Daily Seed: <span className="text-cyan-400">{dailySeed}</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setScreen("controls")}
+            className="text-cyan-400 hover:underline flex items-center gap-1 font-bold"
+          >
+            <HelpCircle className="w-3.5 h-3.5" /> Controls Guide
+          </button>
+          <span>•</span>
+          <span>Seed: <span className="text-cyan-400">{dailySeed}</span></span>
         </div>
       </footer>
     </div>

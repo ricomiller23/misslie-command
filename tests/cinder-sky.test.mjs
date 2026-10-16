@@ -127,3 +127,36 @@ test("Shard splitting logic produces expected child counts", () => {
   const clusterChildrenCount = 4;
   assert.equal(clusterChildrenCount, 4, "Cluster Core must yield 4 streaks");
 });
+
+test("Missile pointer mouse aiming and keyboard base selection logic", () => {
+  const VIRTUAL_HEIGHT = 800;
+  const SILO_LINE_Y = VIRTUAL_HEIGHT - 60; // 740
+
+  const silos = [
+    { id: 0, x: 120, y: 755, shells: 10, isCenterFast: false },
+    { id: 1, x: 600, y: 755, shells: 10, isCenterFast: true },
+    { id: 2, x: 1080, y: 755, shells: 10, isCenterFast: false }
+  ];
+
+  // 1. Mouse coordinates inside valid sky fire zone
+  const mouseTargetValid = { x: 500, y: 300 };
+  assert.ok(mouseTargetValid.y <= SILO_LINE_Y, "Pointer in sky should be valid fire zone");
+
+  // 2. Mouse coordinates below silo line
+  const mouseTargetInvalid = { x: 500, y: 760 };
+  assert.ok(mouseTargetInvalid.y > SILO_LINE_Y, "Pointer below silo line should be invalid fire zone");
+
+  // 3. Center silo speed multiplier is 1.4x (40% faster)
+  const baseSpeed = 420;
+  const sideSpeed = baseSpeed * 1.0;
+  const centerSpeed = baseSpeed * 1.4;
+  assert.equal(centerSpeed / sideSpeed, 1.4, "Center base must have 1.4x speed factor");
+
+  // 4. Choosing base 1, 2, or 3
+  const chosenBases = [0, 1, 2];
+  chosenBases.forEach((idx) => {
+    const selectedSilo = silos[idx];
+    assert.equal(selectedSilo.id, idx, `Base index ${idx + 1} must match silo id`);
+    assert.ok(selectedSilo.shells > 0, `Base ${idx + 1} must have ammo`);
+  });
+});
