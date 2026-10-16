@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "misslie command — Operational Command Center",
-  description: "Modernized & Re-Engineered with REA Studio v6.5.0",
+  title: "Cinder Sky — Single-Screen Arcade Defense Game",
+  description: "Meteor shards rain onto a mountain valley. Defend six alpine settlements with flak bursts, chain reactions, and workshop upgrades.",
 };
 
 export default function RootLayout({
@@ -21,7 +21,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body className="bg-[#050711] text-slate-100 antialiased overflow-x-hidden">{children}</body>
     </html>
   );
 }

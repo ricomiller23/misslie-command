@@ -1,14 +1,14 @@
-import { WorkspaceApp } from "@/components/WorkspaceApp";
+import { CinderSkyGame } from "@/components/CinderSkyGame";
 
 export const metadata = {
-  title: "misslie command — Modernized & Re-Engineered",
-  description: "Re-engineered with REA Studio (Reverse Engineer Anything v6.5.0)"
+  title: "Cinder Sky — Single-Screen Arcade Defense Game",
+  description: "Meteor shards rain onto a mountain valley. Defend six alpine settlements with flak bursts, chain reactions, and workshop upgrades."
 };
 
 export default function Page() {
   return (
-    <main className="main-wrapper">
-      <WorkspaceApp />
+    <main className="w-full min-h-screen bg-[#050711]">
+      <CinderSkyGame />
     </main>
   );
 }
