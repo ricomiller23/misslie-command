@@ -559,7 +559,7 @@ export class CinderSkyEngine {
       }
 
       // Ground Impact Check (Altitude 750)
-      if (sh.y >= CinderSkyEngine.VIRTUAL_HEIGHT - 45) {
+      if (sh.y >= CinderSkyEngine.VIRTUAL_HEIGHT - 45 || sh.x < -100 || sh.x > CinderSkyEngine.VIRTUAL_WIDTH + 100) {
         this.handleGroundImpact(sh);
         this.shards.splice(i, 1);
       }

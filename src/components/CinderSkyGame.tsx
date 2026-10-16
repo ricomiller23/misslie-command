@@ -50,6 +50,7 @@ export function CinderSkyGame() {
   const [gameMode, setGameMode] = useState<GameMode>("standard");
   const [dailySeed, setDailySeed] = useState<string>("");
   const [dailyRecord, setDailyRecord] = useState<{ score: number; wave: number } | null>(null);
+  const [autoCountdown, setAutoCountdown] = useState<number>(4);
 
   // HUD State (updated on major events / throttled)
   const [hud, setHud] = useState<HudState>({
@@ -90,6 +91,33 @@ export function CinderSkyGame() {
       forcedSilo
     );
   }, [forcedSilo]);
+
+  // Launch Next Wave handler (Memoized for timers and key events)
+  const handleLaunchNextWave = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.startWave(engine.wave + 1);
+    setScreen("playing");
+  }, []);
+
+  // Auto-advance countdown from Tally screen to next wave (Frictionless arcade progression)
+  useEffect(() => {
+    if (screen !== "tally") return;
+    setAutoCountdown(4);
+
+    const interval = setInterval(() => {
+      setAutoCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          handleLaunchNextWave();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [screen, tally, handleLaunchNextWave]);
 
   // Initialize engine and persistent data
   useEffect(() => {
@@ -132,11 +160,33 @@ export function CinderSkyGame() {
     };
   }, []);
 
-  // Keyboard controls: 1/2/3 to choose/fire base, 0/A for auto, Space for Slow Time, P/Esc for Pause, H for Controls
+  // Keyboard controls: 1/2/3 to choose/fire base, 0/A for auto, Space for Slow Time / Continue, P/Esc for Pause, H for Controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const engine = engineRef.current;
       if (!engine) return;
+
+      // When on Tally or Workshop screen: Space or Enter immediately launches next wave
+      if (screen === "tally") {
+        if (e.code === "Space" || e.key === "Enter") {
+          e.preventDefault();
+          handleLaunchNextWave();
+          return;
+        }
+        if (e.key === "w" || e.key === "W") {
+          e.preventDefault();
+          setScreen("workshop");
+          return;
+        }
+      }
+
+      if (screen === "workshop") {
+        if (e.code === "Space" || e.key === "Enter") {
+          e.preventDefault();
+          handleLaunchNextWave();
+          return;
+        }
+      }
 
       // Base 1: Left Silo
       if (e.key === "1") {
@@ -197,7 +247,7 @@ export function CinderSkyGame() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [screen]);
+  }, [screen, handleLaunchNextWave]);
 
   // Pointer Movement: Continuous Mouse Reticle Tracking
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -276,13 +326,6 @@ export function CinderSkyGame() {
       embers: engine.embers,
       settlementsAlive: engine.settlements.filter((s) => s.alive).length
     });
-  };
-
-  const handleLaunchNextWave = () => {
-    const engine = engineRef.current;
-    if (!engine) return;
-    engine.startWave(engine.wave + 1);
-    setScreen("playing");
   };
 
   // Setting update helper
@@ -700,25 +743,25 @@ export function CinderSkyGame() {
             </div>
           )}
 
-          {/* WAVE CLEAR TALLY SCREEN */}
+          {/* WAVE CLEAR TALLY SCREEN (With Auto-Advance & Direct Continue Button) */}
           {screen === "tally" && tally && (
-            <div className="absolute inset-0 bg-[#070a1a]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 z-20">
-              <div className="max-w-md w-full p-6 md:p-8 rounded-2xl bg-[#0c142b] border border-cyan-700/60 shadow-2xl text-center">
+            <div className="absolute inset-0 bg-[#070a1a]/95 backdrop-blur-md flex flex-col items-center justify-center p-4 md:p-6 z-20">
+              <div className="max-w-md w-full p-6 md:p-8 rounded-2xl bg-[#0c142b] border border-cyan-600/70 shadow-[0_0_35px_rgba(6,182,212,0.3)] text-center">
                 <div className="inline-block px-3 py-1 rounded-full bg-cyan-950 border border-cyan-500 text-cyan-300 text-xs font-bold uppercase mb-2">
                   WAVE {tally.wave} SECURED
                 </div>
-                <h2 className="text-3xl font-black text-white tracking-widest mb-6">VALLEY SURVIVED</h2>
+                <h2 className="text-3xl font-black text-white tracking-widest mb-3">VALLEY SURVIVED</h2>
 
-                <div className="space-y-3 mb-6 text-sm text-left">
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-slate-900/80 border border-slate-800">
+                <div className="space-y-2 mb-4 text-sm text-left">
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
                     <span className="text-slate-400">Settlements Protected ({tally.settlementsSaved} x 500)</span>
                     <span className="font-bold text-cyan-300">+{tally.settlementsSaved * 500} PTS</span>
                   </div>
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
                     <span className="text-slate-400">Unused Interceptor Ammo ({tally.ammoRemaining} x 10)</span>
                     <span className="font-bold text-cyan-300">+{tally.ammoRemaining * 10} PTS</span>
                   </div>
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-amber-950/40 border border-amber-800/40 text-amber-300">
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-amber-950/40 border border-amber-800/40 text-amber-300">
                     <span className="flex items-center gap-1.5">
                       <Flame className="w-4 h-4 text-amber-400" /> Embers Harvested
                     </span>
@@ -726,13 +769,31 @@ export function CinderSkyGame() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setScreen("workshop")}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-sky-400 hover:from-cyan-400 hover:to-sky-300 text-slate-950 font-black text-sm tracking-wider uppercase flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(6,182,212,0.4)] transition-all hover:scale-[1.02]"
-                >
-                  <span>ENTER WORKSHOP</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
+                {/* Auto Countdown Pill */}
+                <div className="flex items-center justify-center gap-2 mb-4 text-xs text-cyan-300 bg-cyan-950/60 border border-cyan-800/60 py-1.5 px-3 rounded-full">
+                  <div className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                  <span>Launching Wave {tally.wave + 1} in <strong>{autoCountdown}s</strong></span>
+                </div>
+
+                {/* Direct Action Buttons */}
+                <div className="flex flex-col gap-2.5">
+                  <button
+                    onClick={handleLaunchNextWave}
+                    className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-sky-400 hover:from-cyan-400 hover:to-sky-300 text-slate-950 font-black text-sm tracking-wider uppercase flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all hover:scale-[1.02]"
+                  >
+                    <span>CONTINUE TO WAVE {tally.wave + 1}</span>
+                    <span className="text-xs bg-slate-950/30 px-1.5 py-0.5 rounded font-bold">[SPACE]</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    onClick={() => setScreen("workshop")}
+                    className="w-full py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-cyan-800/50 text-amber-300 font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 transition-all"
+                  >
+                    <Flame className="w-4 h-4 text-amber-400" />
+                    <span>VISIT WORKSHOP (UPGRADES & REPAIRS)</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -740,20 +801,31 @@ export function CinderSkyGame() {
           {/* WORKSHOP MODAL */}
           {screen === "workshop" && engineRef.current && (
             <div className="absolute inset-0 bg-[#070a1a]/95 backdrop-blur-md flex flex-col items-center justify-center p-4 md:p-6 z-20 overflow-y-auto">
-              <div className="max-w-lg w-full p-6 rounded-2xl bg-[#0c142b] border border-cyan-700/60 shadow-2xl">
-                <div className="flex items-center justify-between border-b border-cyan-900/60 pb-3 mb-4">
+              <div className="max-w-lg w-full p-5 md:p-6 rounded-2xl bg-[#0c142b] border border-cyan-600/70 shadow-2xl flex flex-col max-h-[92%]">
+                <div className="flex items-center justify-between border-b border-cyan-900/60 pb-3 mb-3">
                   <div>
-                    <h2 className="text-xl font-bold tracking-wider text-cyan-300">VALLEY WORKSHOP</h2>
-                    <p className="text-xs text-slate-400">Upgrade defense grid before Wave {engineRef.current.wave + 1}</p>
+                    <h2 className="text-lg md:text-xl font-bold tracking-wider text-cyan-300">VALLEY WORKSHOP</h2>
+                    <p className="text-[11px] text-slate-400">Upgrade defense grid before Wave {engineRef.current.wave + 1}</p>
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-sm">
-                    <Flame className="w-4 h-4 text-amber-400" />
-                    <span>{hud.embers} EMBERS</span>
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-xs">
+                      <Flame className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{hud.embers} EMB</span>
+                    </div>
+                    {/* Header Quick Launch Button */}
+                    <button
+                      onClick={handleLaunchNextWave}
+                      className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs uppercase flex items-center gap-1 shadow-[0_0_10px_#22d3ee] transition-all"
+                      title="Launch Next Wave (Press Space)"
+                    >
+                      <span>LAUNCH [SPACE]</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
 
                 {/* Upgrade Items List */}
-                <div className="space-y-3 mb-6">
+                <div className="space-y-2.5 mb-4 overflow-y-auto flex-1 pr-1">
                   {/* 1. Blast Radius */}
                   {(() => {
                     const lvl = engineRef.current.upgrades.blastRadiusLevel;
@@ -761,10 +833,10 @@ export function CinderSkyGame() {
                     const price = WORKSHOP_PRICES.blastRadius[lvl];
                     const canAfford = price !== undefined && hud.embers >= price;
                     return (
-                      <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
                         <div>
-                          <div className="text-sm font-bold text-slate-200">Flak Blast Radius (+10%)</div>
-                          <div className="text-xs text-slate-400">Expands blast interception radius (Lvl {lvl}/{max})</div>
+                          <div className="text-xs md:text-sm font-bold text-slate-200">Flak Blast Radius (+10%)</div>
+                          <div className="text-[11px] text-slate-400">Expands blast interception radius (Lvl {lvl}/{max})</div>
                         </div>
                         <button
                           onClick={() => handleUpgrade("blastRadiusLevel")}
@@ -790,10 +862,10 @@ export function CinderSkyGame() {
                     const price = WORKSHOP_PRICES.shellSpeed[lvl];
                     const canAfford = price !== undefined && hud.embers >= price;
                     return (
-                      <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
                         <div>
-                          <div className="text-sm font-bold text-slate-200">Shell Flight Speed (+15%)</div>
-                          <div className="text-xs text-slate-400">Flak shells detonate sooner (Lvl {lvl}/{max})</div>
+                          <div className="text-xs md:text-sm font-bold text-slate-200">Shell Flight Speed (+15%)</div>
+                          <div className="text-[11px] text-slate-400">Flak shells detonate sooner (Lvl {lvl}/{max})</div>
                         </div>
                         <button
                           onClick={() => handleUpgrade("shellSpeedLevel")}
@@ -819,10 +891,10 @@ export function CinderSkyGame() {
                     const price = WORKSHOP_PRICES.ammo[lvl];
                     const canAfford = price !== undefined && hud.embers >= price;
                     return (
-                      <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
                         <div>
-                          <div className="text-sm font-bold text-slate-200">Silo Ammo Capacity (+2 / silo)</div>
-                          <div className="text-xs text-slate-400">Stores more shells per wave (Lvl {lvl}/{max})</div>
+                          <div className="text-xs md:text-sm font-bold text-slate-200">Silo Ammo Capacity (+2 / silo)</div>
+                          <div className="text-[11px] text-slate-400">Stores more shells per wave (Lvl {lvl}/{max})</div>
                         </div>
                         <button
                           onClick={() => handleUpgrade("ammoLevel")}
@@ -848,10 +920,10 @@ export function CinderSkyGame() {
                     const price = WORKSHOP_PRICES.slowTime[lvl];
                     const canAfford = price !== undefined && hud.embers >= price;
                     return (
-                      <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
                         <div>
-                          <div className="text-sm font-bold text-slate-200">Extra Slow Time Charge (+1)</div>
-                          <div className="text-xs text-slate-400">Extra 3-second tactical dilation (Lvl {lvl}/{max})</div>
+                          <div className="text-xs md:text-sm font-bold text-slate-200">Extra Slow Time Charge (+1)</div>
+                          <div className="text-[11px] text-slate-400">Extra 3-second tactical dilation (Lvl {lvl}/{max})</div>
                         </div>
                         <button
                           onClick={() => handleUpgrade("slowTimeChargesLevel")}
@@ -876,10 +948,10 @@ export function CinderSkyGame() {
                     const price = WORKSHOP_PRICES.rebuildSettlement;
                     const canAfford = hud.embers >= price;
                     return (
-                      <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
                         <div>
-                          <div className="text-sm font-bold text-slate-200">Reconstruct Settlement</div>
-                          <div className="text-xs text-slate-400">Restore one lost valley settlement</div>
+                          <div className="text-xs md:text-sm font-bold text-slate-200">Reconstruct Settlement</div>
+                          <div className="text-[11px] text-slate-400">Restore one lost valley settlement</div>
                         </div>
                         <button
                           onClick={handleRebuildSettlement}
@@ -899,11 +971,13 @@ export function CinderSkyGame() {
                   })()}
                 </div>
 
+                {/* Bottom Launch Button */}
                 <button
                   onClick={handleLaunchNextWave}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-sky-400 hover:from-cyan-400 hover:to-sky-300 text-slate-950 font-black text-sm tracking-wider uppercase flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(6,182,212,0.4)] transition-all hover:scale-[1.02]"
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-sky-400 hover:from-cyan-400 hover:to-sky-300 text-slate-950 font-black text-sm tracking-wider uppercase flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(6,182,212,0.4)] transition-all hover:scale-[1.02]"
                 >
                   <span>LAUNCH WAVE {engineRef.current.wave + 1}</span>
+                  <span className="text-xs bg-slate-950/30 px-1.5 py-0.5 rounded font-bold">[SPACE]</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
